@@ -1,0 +1,16 @@
+{
+	"name":"APIDepyoment",
+	"code":"APIDEPLOYMENT",
+	"description":"Test deployment",
+	"integrations":
+		[
+			{
+				"code":"INVOICE_VALIDATION",
+				"version":"01.00.0000"
+			},  
+			{
+				"code":"INVOIC_BULK_IMPORT_TO_ERP",
+				"version":"01.00.0000"
+			}
+		]
+	}
