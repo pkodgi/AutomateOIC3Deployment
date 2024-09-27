@@ -11,10 +11,7 @@
 			{
 				"code":"INVOIC_BULK_IMPORT_TO_ERP",
 				"version":"01.00.0000"
-			},
-			{
-				"code":"IMPORT_PENDING_WORKER",
-				"version":"02.00.0000"
 			}
+			
 		]
 	}
