@@ -1,0 +1,139 @@
+pipeline {
+    agent any
+
+    environment {
+        USER_CREDENTIALS = credentials('OIC_USER')
+    }
+
+    stages {
+       
+stage ('Git Checkout')
+        {
+            steps {
+                sh '''
+                #!/bin/bash +x
+                cd ../git/"${RepoName}"/
+                git stash
+                git pull https://github.com/{GITUserName}/"${RepoName}"
+            '''
+            }
+            
+        }
+        stage('Get Token for DEV') {
+            steps {
+                
+                withCredentials([usernamePassword(credentialsId: 'OIC_USER', usernameVariable: '$USER_CREDENTIALS_USR', passwordVariable: '$USER_CREDENTIALS_PSW')]) {
+                sh '''
+                #!/bin/bash +x
+                    ACCESS_TOKEN=$(curl --location --request POST "${TOKEN_URL}" \
+                    --header "Content-Type: application/x-www-form-urlencoded" \
+                    --data-urlencode "grant_type=client_credentials" \
+                    --data-urlencode "scope=${SCOPE_DEV}" \
+                    --data-urlencode "client_id=$USER_CREDENTIALS_USR" \
+                    --data-urlencode "client_secret=$USER_CREDENTIALS_PSW" --insecure -o token.json | jq -r '.access_token')
+    
+                '''	
+
+   }
+            } 
+            
+   
+}
+     stage('Get Token for PROD') {
+            steps {
+               
+                withCredentials([usernamePassword(credentialsId: 'OIC_USER_PROD', passwordVariable: 'USER_CREDENTIALS_PWD_PROD', usernameVariable: 'USER_CREDENTIALS_USR_PROD')])
+                {
+                sh '''
+                #!/bin/bash +x
+                    ACCESS_TOKEN=$(curl --location --request POST "${TOKEN_URL}" \
+                    --header "Content-Type: application/x-www-form-urlencoded" \
+                    --data-urlencode "grant_type=client_credentials" \
+                    --data-urlencode "scope=${SCOPE_PROD}" \
+                    --data-urlencode "client_id=$USER_CREDENTIALS_USR_PROD" \
+                    --data-urlencode "client_secret=$USER_CREDENTIALS_PWD_PROD" --insecure -o token_prod.json | jq -r '.access_token')
+    
+                '''	
+   }
+            } 
+            
+   
+}
+
+stage('Create Deployment in Dev')
+{
+    steps
+    {
+        sh '''
+       #!/bin/bash +x
+        BEARER_TOKEN=$(jq -r '.access_token' token.json)
+        DEPLOYMENTDATA=$(jq '.' ../git/"${RepoName}"/deployment.json )
+        DEPLOYMENT_CODE=$(jq -r '.code' ../git/"${RepoName}"/deployment.json)
+       echo " Delete first if present"
+        curl --location --request DELETE "https://"${OIC_BASE_URL}"/"${projectId}"/deployments/"${DEPLOYMENT_CODE}"?integrationInstance={SOURCE_INSTNACE_NAME}"\
+        --header "Content-Type: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN"  
+        curl --location --request  POST "https://"${OIC_BASE_URL}"/ic/api/integration/v1/projects/"${projectId}"/deployments?integrationInstance="${SOURCE_INSTNACE_NAME}"" \
+        --header "Content-Type: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --data "$DEPLOYMENTDATA" --insecure -o response.json
+        '''
+    }
+}
+stage('Export Deployment from Dev')
+{
+    steps
+    {
+        sh'''
+        echo off
+        DEPLOYMENT_CODE=$(jq -r '.code' response.json)
+        BEARER_TOKEN=$(jq -r '.access_token' token.json)
+        
+        curl --location --request POST "https://"${OIC_BASE_URL}"/"${projectId}"/archive?integrationInstance="${SOURCE_INSTNACE_NAME}"" \
+        --header "Content-Type: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        --data '{
+            "code":"'${projectId}'","type":"DEVELOPED","label":"'${DEPLOYMENT_CODE}'"
+        }' --insecure -o $DEPLOYMENT_CODE.car
+        '''
+    }
+}
+stage ('Import Deployment in Prod')
+{
+    steps
+    {
+        sh '''
+        echo off
+    BEARER_TOKEN=$(jq -r '.access_token' token_prod.json)
+        DEPLOYMENT_CODE=$(jq -r '.code' response.json)
+        curl --location --request DELETE "https://"${OIC_BASE_URL}"/ic/api/integration/v1/projects/"${projectId}"/deployments/"${DEPLOYMENT_CODE}"?"${TARGET_INSTNACE_NAME}""\
+        --header "Content-Type: application/json" \
+        --header "Authorization: Bearer $BEARER_TOKEN"
+        
+        curl --location --request  POST "https://"${OIC_BASE_URL}"/ic/api/integration/v1/projects/archive?integrationInstance="${TARGET_INSTNACE_NAME}"" \
+        --header "Authorization: Bearer $BEARER_TOKEN" \
+        -F 'type=application/octet-stream' \
+        -F "file=@${DEPLOYMENT_CODE}.car" 
+        scp "${DEPLOYMENT_CODE}.car" ../git/"${RepoName}"/"${DEPLOYMENT_CODE}.car"
+        '''
+    }
+}
+stage ('Git Push')
+{  
+    steps
+    {
+            withCredentials([usernamePassword(credentialsId: 'GIT_CREDENTIALS', usernameVariable: 'GIT_CRED_USR', passwordVariable: 'GIT_CRED_PSW')]) {
+            sh '''
+            echo off
+             cd ../git/AutomateOIC3Deployment/
+             echo ${GitHubCredentialId}
+             git add .
+             git commit -m  "$BUILD_NUMBER"
+             git fetch
+             git push  https://${GIT_CRED_PSW}@github.com/"${gitusername}"/"${RepoName}"
+            ''' }
+    }
+  
+}  
+    }
+}
