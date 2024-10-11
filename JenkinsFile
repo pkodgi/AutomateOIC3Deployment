@@ -125,7 +125,7 @@ stage ('Git Push')
             withCredentials([usernamePassword(credentialsId: 'GIT_CREDENTIALS', usernameVariable: 'GIT_CRED_USR', passwordVariable: 'GIT_CRED_PSW')]) {
             sh '''
             echo off
-             cd ../git/AutomateOIC3Deployment/
+             cd ../git/"${RepoName}"/
              echo ${GitHubCredentialId}
              git add .
              git commit -m  "$BUILD_NUMBER"
